@@ -2,9 +2,9 @@ import lexer
 from globalTypes import *
 from lexer import getToken, globales as lexer_globales, TokenType
 
-"""
-Parser descendente recursivo para C-. Genera un AST enriquecido con números de línea.
-"""
+
+# Parser descendente recursivo para C-. Genera un AST enriquecido con números de línea.
+
 
 class ASTNode:
     def __init__(self, kind, lexeme=None):

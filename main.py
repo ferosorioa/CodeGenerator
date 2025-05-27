@@ -3,10 +3,11 @@
 from globalTypes import *
 from parser import parser, globales as parser_globales
 from semantica import semantica
+from cgen import *
 
 if __name__ == "__main__":
-    fileName = "sample"
-    with open(fileName + '.c-', 'r') as f:
+    path = 'pruebaslu.c-' #sample.c-
+    with open(path, 'r') as f:
         prog = f.read()
     prog += '$'
     progLong = len(prog)
@@ -15,3 +16,5 @@ if __name__ == "__main__":
     parser_globales(prog, posicion, progLong)
     ast = parser(imprime=True)
     semantica(ast, imprime=True)
+    codeGen(ast,"output.s")
+
