@@ -1,0 +1,106 @@
+/* sample_long3.c-: Prueba de semántica con scopes profundos en bigTest y en main */
+
+void bigTest(int N, int M) {
+    int total;
+    int data[5];
+    int total;
+
+    /* --- Nivel 0: parámetros y vars de función --- */
+    total = 0;
+    data[0] = N;
+    data[1] = M;
+    data[2] = N + M;
+    data[3] = N * M;
+    data[4] = N - M;
+
+    {   /* --- Nivel 1: bloque anidado #1 --- */
+        int i;
+        i = 0;
+        while (i < N) {
+            {   /* --- Nivel 2: dentro del while --- */
+                int val;
+                if (i < 5)
+                    val = data[i];
+                else {
+                    {   /* --- Nivel 3: sub-bloque en else --- */
+                        int t;
+                        t = i - 5;
+                        val = data[t];
+                    }
+                }
+                total = total + val;
+            }
+            i = i + 1;
+        }
+
+        {   /* --- Nivel 2: bloque #2 dentro de Nivel 1 --- */
+            int j;
+            j = 0;
+            while (j < M) {
+                total = total + j;
+                j = j + 1;
+            }
+        }
+
+        {   /* --- Nivel 2: bloque #3 con su propio if/else --- */
+            int X, Y;
+            X = total;
+            Y = data[3];
+            if (X >= Y)
+                total = X;
+            else {
+                int Z;  /* --- Nivel 3 en else --- */
+                Z = Y - X;
+                total = Z;
+            }
+        }
+
+        {   /* --- Nivel 2: bloque #4 con doble anidamiento extra --- */
+            int P;
+            P = total;
+            {   /* --- Nivel 3: sub-bloque en P --- */
+                int Q;
+                Q = P * 2;
+                if (Q > 100)
+                    total = Q;
+                else
+                    total = total + Q;
+            }
+        }
+    }
+
+    output(total);
+    return;
+}
+
+/* ————————————————————————— */
+/* Ahora fichero main() final  */
+/* ————————————————————————— */
+
+void main(void) {
+    int a;
+    int b;
+
+    /* Prueba de bigTest con dos llamadas distintas */
+    a = input();        /* primer parámetro */
+    b = input();        /* segundo parámetro */
+
+    /* Nivel 0 en main */
+    bigTest(a, b);
+
+    {   /* Nivel 1: bloque anidado en main */
+        int temp;
+        temp = a + b;
+        if (temp != 0) {
+            {   /* Nivel 2: dentro del if */
+                int inner;
+                inner = temp * 2;
+                output(inner);
+            }
+        } else {
+            output(0);
+        }
+    }
+
+    return;
+}
