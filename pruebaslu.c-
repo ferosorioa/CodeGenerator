@@ -1,6 +1,17 @@
+int sumUp(int n) {
+    int i;
+    int total;
+    i = 0;
+    total = 0;
+    while (i < n) {
+        total = total + i;
+        i = i + 1;
+    }
+    return total;
+}
+
 void main(void) {
-  int x;
-  int y;
-  x = 5;
-  y = x + 1;
+    int result;
+    result = sumUp(10);
+    output(result);
 }

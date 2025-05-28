@@ -30,14 +30,21 @@ def codeGen(tree, filename):
         emitter.emit(".data")
         emitter.emit("newline: .asciiz \"\\n\"")
         emitter.emit(".text")
-        emitter.emit(".globl main")
-
+        
+        # First pass: declare all functions as global
+        for child in tree.children:
+            if child.kind == 'fun_decl':
+                func_name = child.children[1].lexeme
+                emitter.emit(f".globl {func_name}")
+        
+        emitter.emit("")  # Empty line for readability
+        
+        # Second pass: generate code
         generate_code(tree, emitter)
 
 def generate_code(node, emitter):
-
     if node is None:
-        return
+            return
 
     if node.kind == 'program':
         for child in node.children:
@@ -46,16 +53,45 @@ def generate_code(node, emitter):
     elif node.kind == 'fun_decl':
         gen_function(node, emitter)
     
-    elif node.kind =='compound_stmt':
-        gen_compound_stmt(node,emitter)
+    elif node.kind == 'compound_stmt':
+        gen_compound_stmt(node, emitter)
     
-    elif node.kind=='var_decl':
-        gen_var_decl(node,emitter)
+    elif node.kind == 'var_decl':
+        gen_var_decl(node, emitter)
 
     elif node.kind == 'expression_stmt':
         gen_expression_stmt(node, emitter)
+    
+    elif node.kind == 'selection_stmt':
+        gen_selection_stmt(node, emitter)
+    
+    elif node.kind == 'iteration_stmt':
+        gen_iteration_stmt(node, emitter)
+    
+    elif node.kind == 'return_stmt':
+        gen_return_stmt(node, emitter)
+    
+    elif node.kind == 'local_declarations':
+        # Procesar cada declaración local
+        for child in node.children:
+            generate_code(child, emitter)
+    
+    elif node.kind == 'statement_list':
+        # Procesar cada statement
+        for child in node.children:
+            generate_code(child, emitter)
+    
+    # Don't process these nodes - they're handled by their parents
+    elif node.kind in ['type_specifier', 'ID', 'params', 'VOID', 'param_list', 'param', 'args', 'arg_list']:
+        pass
+    
+    # Expressions - normally not independent statements
+    elif node.kind in ['assign', 'addop', 'mulop', 'relop', 'var', 'NUM', 'call']:
+        gen_expression(node, emitter)
+    
+    else:
+        emitter.emit_comment(f"[Warning] Tipo de nodo no manejado en generate_code: {node.kind}")
 
-    # Agregaremos más tipos aquí como compound_stmt, assign, call, etc.
 
 
 #Convierte a las funciones en las instrucciones MIPS para funciones. Guarda las variables de estas funciones en un stack local.
@@ -64,22 +100,43 @@ def gen_function(node, emitter):
     global symbol_table, offset_counter
     symbol_table = {}          # Reset tabla de símbolos
     offset_counter = 0         # Reset offset local
-    name = node.children[1].lexeme  # e.g., 'main' o 'bigTest'
+    name = node.children[1].lexeme  # e.g., 'main' o 'sumUp'
     emitter.emit(f"{name}:")
     emitter.emit_comment("Prolog")
     emitter.emit("sw $ra, 0($sp)")
     emitter.emit("sw $fp, -4($sp)")
     emitter.emit("move $fp, $sp")
     emitter.emit("addi $sp, $sp, -8")  # Reservar espacio mínimo
-
+    
+    # Process parameters if any
+    params_node = node.children[2]
+    if params_node.children and params_node.children[0].kind != 'VOID':
+        param_offset = 8  # Parameters are above the frame pointer
+        for i, param in enumerate(params_node.children[0].children):
+            param_name = param.children[1].lexeme
+            symbol_table[param_name] = param_offset
+            param_offset += 4
+            emitter.emit_comment(f"Parámetro {param_name} en offset {symbol_table[param_name]}")
+    
+    # Generate function body (only the compound_stmt)
     for child in node.children:
-        generate_code(child, emitter)
-
+        if child.kind == 'compound_stmt':
+            generate_code(child, emitter)
+    
+    # Epilogue label for returns
+    emitter.emit("epilogue:")
     emitter.emit_comment("Epilog")
     emitter.emit("move $sp, $fp")
     emitter.emit("lw $fp, -4($sp)")
     emitter.emit("lw $ra, 0($sp)")
-    emitter.emit("jr $ra")
+    
+    # Special case for main function - exit syscall
+    if name == "main":
+        emitter.emit("li $v0, 10")
+        emitter.emit("syscall")
+    else:
+        emitter.emit("jr $ra")
+    emitter.emit("")  # Empty line for readability
 
 #Analiza los compound statements "{ }". MArca su inicio y su fin y se supone que llama a todo lo que esta dentro de forma recursiva.
 def gen_compound_stmt(node, emitter):
@@ -138,6 +195,36 @@ def gen_expression(node, emitter):
         else:
             emitter.emit_comment(f"[Error] Variable no encontrada: {name}")
         return reg
+    
+    # OTRA DEF de var, diferencia entre variable simple y arreglo
+    # elif node.kind == 'var':
+    #     name = node.lexeme
+    #     offset = symbol_table.get(name)
+    #     reg = f"$t{register_counter % 10}"
+    #     register_counter += 1
+        
+    #     if len(node.children) > 0:  # Array access
+    #         # Calculate array index
+    #         index_reg = gen_expression(node.children[0], emitter)
+    #         offset_reg = f"$t{register_counter % 10}"
+    #         register_counter += 1
+            
+    #         # Calculate byte offset (index * 4)
+    #         emitter.emit(f"sll {offset_reg}, {index_reg}, 2")
+            
+    #         # Calculate address
+    #         if offset is not None:
+    #             emitter.emit(f"addi {offset_reg}, {offset_reg}, {offset}")
+    #             emitter.emit(f"add {offset_reg}, {offset_reg}, $fp")
+    #             emitter.emit(f"lw {reg}, 0({offset_reg})")
+    #         else:
+    #             emitter.emit_comment(f"[Error] Array no encontrado: {name}")
+    #     else:  # Simple variable
+    #         if offset is not None:
+    #             emitter.emit(f"lw {reg}, {offset}($fp)")
+    #         else:
+    #             emitter.emit_comment(f"[Error] Variable no encontrada: {name}")
+    #     return reg
 
     elif node.kind == 'addop':
         left = gen_expression(node.children[0], emitter)
@@ -156,6 +243,9 @@ def gen_expression(node, emitter):
         op = 'mul' if node.lexeme == '*' else 'div'
         emitter.emit(f"{op} {reg}, {left}, {right}")
         return reg
+    
+    elif node.kind == 'relop':
+        return gen_relop(node, emitter)
 
     elif node.kind == 'assign':
         name = node.lexeme
@@ -166,6 +256,18 @@ def gen_expression(node, emitter):
         else:
             emitter.emit_comment(f"[Error] Variable no encontrada para asignación: {name}")
         return result
+    
+    elif node.kind == 'call':
+        return gen_call(node, emitter)
+    
+    if node.kind == 'NUM':
+        return gen_num(node, emitter)
+
+    
+    
+    else:
+        emitter.emit_comment(f"[Warning] Tipo de expresión no manejado: {node.kind}")
+        return "$zero"
 
 
 
@@ -175,6 +277,7 @@ def gen_expression(node, emitter):
 # Traduce un bloque de código `{ ... }`.
 # - Llama a gen_var_decl para reservar espacio en stack
 # - Luego traduce cada statement del bloque con generate_code
+
 
 # gen_var_decl(node, emitter)
 # Traduce declaraciones de variables locales.
@@ -189,6 +292,30 @@ def gen_expression(node, emitter):
 # Traduce una asignación `x = expr`.
 # - Evalúa el lado derecho (gen_expression)
 # - Busca el offset de `x` y guarda el resultado con sw
+def gen_assign(node, emitter):
+    """
+    Traduce una asignación `x = expr`.
+    - Evalúa el lado derecho (gen_expression)
+    - Busca el offset de `x` y guarda el resultado con sw
+    """
+    name = node.lexeme
+    offset = symbol_table.get(name)
+    
+    emitter.emit_comment(f"Asignación a variable: {name}")
+    
+    # Evaluar expresión del lado derecho
+    result_reg = gen_expression(node.children[0], emitter)
+    
+    # Verificar si la variable es un arreglo con índice
+    # En el AST, si es asignación a arreglo, necesitaríamos info adicional
+    # Por ahora asumimos asignación a variable simple
+    
+    if offset is not None:
+        emitter.emit(f"sw {result_reg}, {offset}($fp)  # {name} = expresión")
+    else:
+        emitter.emit_comment(f"[Error] Variable no encontrada para asignación: {name}")
+    
+    return result_reg
 
 # gen_expression(node, emitter)
 # Traduce una expresión general: puede ser NUM, var, addop, mulop, call, etc.
@@ -199,35 +326,245 @@ def gen_expression(node, emitter):
 # Traduce una variable:
 # - Si es simple (`x`), la carga desde stack (lw)
 # - Si es un arreglo indexado (`data[i]`), calcula offset dinámico y hace lw
+def gen_var(node, emitter):
+    """
+    Traduce una variable:
+    - Si es simple (`x`), la carga desde stack (lw)
+    - Si es un arreglo indexado (`data[i]`), calcula offset dinámico y hace lw
+    """
+    global register_counter
+    name = node.lexeme
+    offset = symbol_table.get(name)
+    reg = f"$t{register_counter % 10}"
+    register_counter += 1
+    
+    if len(node.children) > 0:  # Array access: data[i]
+        emitter.emit_comment(f"Acceso a arreglo: {name}[index]")
+        
+        # Evaluar índice
+        index_reg = gen_expression(node.children[0], emitter)
+        offset_reg = f"$t{register_counter % 10}"
+        register_counter += 1
+        
+        # Calcular offset en bytes (index * 4)
+        emitter.emit(f"sll {offset_reg}, {index_reg}, 2  # index * 4")
+        
+        # Calcular dirección final
+        if offset is not None:
+            addr_reg = f"$t{register_counter % 10}"
+            register_counter += 1
+            # Dirección base del arreglo
+            emitter.emit(f"addi {addr_reg}, $fp, {offset}")
+            # Sumar el offset del índice
+            emitter.emit(f"add {addr_reg}, {addr_reg}, {offset_reg}")
+            # Cargar el valor
+            emitter.emit(f"lw {reg}, 0({addr_reg})")
+        else:
+            emitter.emit_comment(f"[Error] Arreglo no encontrado: {name}")
+            emitter.emit(f"li {reg}, 0  # Error: usar 0 como valor por defecto")
+            
+    else:  # Simple variable: x
+        emitter.emit_comment(f"Cargar variable: {name}")
+        if offset is not None:
+            emitter.emit(f"lw {reg}, {offset}($fp)")
+        else:
+            emitter.emit_comment(f"[Error] Variable no encontrada: {name}")
+            emitter.emit(f"li {reg}, 0  # Error: usar 0 como valor por defecto")
+    
+    return reg
 
 # gen_num(node, emitter)
 # Traduce un número constante `NUM: 5` → `li $tX, 5`
 # - Retorna el registro donde quedó el número
+def gen_num(node, emitter):
+    """
+    Traduce un número constante `NUM: 5` → `li $tX, 5`
+    - Retorna el registro donde quedó el número
+    """
+    global register_counter
+    reg = f"$t{register_counter % 10}"
+    register_counter += 1
+    emitter.emit(f"li {reg}, {node.lexeme}")
+    return reg
 
 # gen_addop(node, emitter)
 # Traduce una suma o resta: `a + b`, `x - y`
 # - Evalúa ambos operandos y aplica `add` o `sub`
+def gen_addop(node, emitter):
+    """
+    Traduce una suma o resta: `a + b`, `x - y`
+    - Evalúa ambos operandos y aplica `add` o `sub`
+    """
+    global register_counter
+    
+    emitter.emit_comment(f"Operación aritmética: {node.lexeme}")
+    
+    # Evaluar operandos
+    left_reg = gen_expression(node.children[0], emitter)
+    right_reg = gen_expression(node.children[1], emitter)
+    
+    # Resultado
+    result_reg = f"$t{register_counter % 10}"
+    register_counter += 1
+    
+    # Aplicar operación
+    if node.lexeme == '+':
+        emitter.emit(f"add {result_reg}, {left_reg}, {right_reg}")
+    else:  # '-'
+        emitter.emit(f"sub {result_reg}, {left_reg}, {right_reg}")
+    
+    return result_reg
 
 # gen_mulop(node, emitter)
 # Traduce una multiplicación o división: `a * b`, `x / y`
 # - Evalúa ambos lados y aplica `mul` o `div`
+def gen_mulop(node, emitter):
+    """
+    Traduce una multiplicación o división: `a * b`, `x / y`
+    - Evalúa ambos lados y aplica `mul` o `div`
+    """
+    global register_counter
+    
+    emitter.emit_comment(f"Operación multiplicativa: {node.lexeme}")
+    
+    # Evaluar operandos
+    left_reg = gen_expression(node.children[0], emitter)
+    right_reg = gen_expression(node.children[1], emitter)
+    
+    # Resultado
+    result_reg = f"$t{register_counter % 10}"
+    register_counter += 1
+    
+    # Aplicar operación
+    if node.lexeme == '*':
+        emitter.emit(f"mul {result_reg}, {left_reg}, {right_reg}")
+    else:  # '/'
+        # División en MIPS usa registros especiales hi/lo
+        emitter.emit(f"div {left_reg}, {right_reg}")
+        emitter.emit(f"mflo {result_reg}  # Cociente de la división")
+    
+    return result_reg
 
 # gen_relop(node, emitter)
 # Traduce una comparación relacional: `<`, `>`, `!=`, etc.
 # - Usa instrucciones como `slt`, `beq`, `bne`, `bge`, etc.
 # - Retorna un registro con 1 o 0
+def gen_relop(node, emitter):
+    """
+    Translates relational operators: <, >, <=, >=, ==, !=
+    Returns a register containing 1 (true) or 0 (false)
+    """
+    global register_counter
+    
+    left = gen_expression(node.children[0], emitter)
+    right = gen_expression(node.children[1], emitter)
+    result_reg = f"$t{register_counter % 10}"
+    register_counter += 1
+    
+    op = node.lexeme
+    
+    if op == '<':
+        emitter.emit(f"slt {result_reg}, {left}, {right}")
+    elif op == '>':
+        emitter.emit(f"slt {result_reg}, {right}, {left}")
+    elif op == '<=':
+        # a <= b  is  !(a > b)  which is  !(b < a)
+        emitter.emit(f"slt {result_reg}, {right}, {left}")
+        emitter.emit(f"xori {result_reg}, {result_reg}, 1")
+    elif op == '>=':
+        # a >= b  is  !(a < b)
+        emitter.emit(f"slt {result_reg}, {left}, {right}")
+        emitter.emit(f"xori {result_reg}, {result_reg}, 1")
+    elif op == '==':
+        temp_reg = f"$t{register_counter % 10}"
+        register_counter += 1
+        emitter.emit(f"sub {temp_reg}, {left}, {right}")
+        emitter.emit(f"seq {result_reg}, {temp_reg}, $zero")
+    elif op == '!=':
+        temp_reg = f"$t{register_counter % 10}"
+        register_counter += 1
+        emitter.emit(f"sub {temp_reg}, {left}, {right}")
+        emitter.emit(f"sne {result_reg}, {temp_reg}, $zero")
+    
+    return result_reg
 
 # gen_selection_stmt(node, emitter)
 # Traduce una sentencia `if (...) { ... } else { ... }`
 # - Evalúa condición
 # - Genera etiquetas para true, false, y final
 # - Usa saltos `beq`, `bne`, `j`
+def gen_selection_stmt(node, emitter):
+    """
+    Translates if-else statements
+    node.children[0] = condition
+    node.children[1] = then statement
+    node.children[2] = else statement (optional)
+    """
+    emitter.emit_comment("Inicio de if statement")
+    
+    # Evaluate condition
+    cond_reg = gen_expression(node.children[0], emitter)
+    
+    # Generate labels
+    else_label = emitter.new_label("else")
+    end_label = emitter.new_label("endif")
+    
+    # Branch if condition is false (0)
+    emitter.emit(f"beq {cond_reg}, $zero, {else_label}")
+    
+    # Generate then statement
+    generate_code(node.children[1], emitter)
+    
+    # Jump to end after then block
+    emitter.emit(f"j {end_label}")
+    
+    # Else label
+    emitter.emit(f"{else_label}:")
+    
+    # Generate else statement if it exists
+    if len(node.children) > 2:
+        generate_code(node.children[2], emitter)
+    
+    # End label
+    emitter.emit(f"{end_label}:")
+    emitter.emit_comment("Fin de if statement")
+
 
 # gen_iteration_stmt(node, emitter)
 # Traduce `while (...) { ... }`
 # - Genera etiquetas de entrada y fin
 # - Evalúa la condición al inicio de cada vuelta
 # - Salta fuera del bucle si la condición falla
+def gen_iteration_stmt(node, emitter):
+    """
+    Translates while loops
+    node.children[0] = condition
+    node.children[1] = body statement
+    """
+    emitter.emit_comment("Inicio de while loop")
+    
+    # Generate labels
+    loop_start = emitter.new_label("while")
+    loop_end = emitter.new_label("endwhile")
+    
+    # Loop start label
+    emitter.emit(f"{loop_start}:")
+    
+    # Evaluate condition
+    cond_reg = gen_expression(node.children[0], emitter)
+    
+    # Exit loop if condition is false
+    emitter.emit(f"beq {cond_reg}, $zero, {loop_end}")
+    
+    # Generate loop body
+    generate_code(node.children[1], emitter)
+    
+    # Jump back to start
+    emitter.emit(f"j {loop_start}")
+    
+    # End label
+    emitter.emit(f"{loop_end}:")
+    emitter.emit_comment("Fin de while loop")
 
 # gen_return_stmt(node, emitter)
 # Traduce `return expr;` o `return;`
@@ -235,8 +572,122 @@ def gen_expression(node, emitter):
 # - Guarda el resultado en `$v0`
 # - Salta a la instrucción de retorno
 
+def gen_return_stmt(node, emitter):
+    """
+    Translates return statements
+    Places return value in $v0 and jumps to function epilogue
+    """
+    emitter.emit_comment("Return statement")
+    
+    # If there's a return value, evaluate it and put in $v0
+    if node.children:
+        result_reg = gen_expression(node.children[0], emitter)
+        emitter.emit(f"move $v0, {result_reg}")
+    
+    # Jump to function epilogue
+    emitter.emit("j epilogue")
+
 # gen_call(node, emitter)
 # Traduce una llamada a función
 # - Evalúa cada argumento y los pone en $a0-$a3
 # - Usa `jal` para saltar
 # - El resultado está en `$v0`
+def gen_call(node, emitter):
+    """
+    Translates function calls
+    Handles built-in functions (input, output) and user-defined functions
+    """
+    global register_counter
+    
+    func_name = node.lexeme
+    emitter.emit_comment(f"Llamada a función: {func_name}")
+    
+    # Handle built-in functions
+    if func_name == "input":
+        # input() reads an integer from user
+        emitter.emit("li $v0, 5")  # syscall for read integer
+        emitter.emit("syscall")
+        result_reg = f"$t{register_counter % 10}"
+        register_counter += 1
+        emitter.emit(f"move {result_reg}, $v0")
+        return result_reg
+    
+    elif func_name == "output":
+        # output(x) prints an integer
+        # Evaluate the argument
+        if node.children and node.children[0].children:
+            arg_reg = gen_expression(node.children[0].children[0].children[0], emitter)
+            emitter.emit(f"move $a0, {arg_reg}")
+            emitter.emit("li $v0, 1")  # syscall for print integer
+            emitter.emit("syscall")
+            # Print newline
+            emitter.emit("la $a0, newline")
+            emitter.emit("li $v0, 4")  # syscall for print string
+            emitter.emit("syscall")
+        return None
+    
+    else:
+        # User-defined function
+        # Save current state
+        emitter.emit("addi $sp, $sp, -4")
+        emitter.emit("sw $ra, 0($sp)")
+        
+        # Evaluate and pass arguments
+        if node.children and node.children[0].children:
+            args_list = node.children[0].children[0].children
+            for i, arg in enumerate(args_list):
+                if i < 4:  # First 4 args in $a0-$a3
+                    arg_reg = gen_expression(arg, emitter)
+                    emitter.emit(f"move $a{i}, {arg_reg}")
+                else:
+                    # Additional args on stack (not implemented for simplicity)
+                    emitter.emit_comment("Additional arguments not supported")
+        
+        # Call function
+        emitter.emit(f"jal {func_name}")
+        
+        # Restore state
+        emitter.emit("lw $ra, 0($sp)")
+        emitter.emit("addi $sp, $sp, 4")
+        
+        # Result is in $v0
+        result_reg = f"$t{register_counter % 10}"
+        register_counter += 1
+        emitter.emit(f"move {result_reg}, $v0")
+        return result_reg
+    
+
+# Función mejorada para manejar asignaciones a arreglos
+def gen_assign_array(node, emitter, index_reg):
+    """
+    Maneja asignación a elementos de arreglo: arr[i] = expr
+    """
+    name = node.lexeme
+    offset = symbol_table.get(name)
+    
+    emitter.emit_comment(f"Asignación a arreglo: {name}[index]")
+    
+    # Evaluar expresión del lado derecho
+    result_reg = gen_expression(node.children[0], emitter)
+    
+    if offset is not None:
+        global register_counter
+        offset_reg = f"$t{register_counter % 10}"
+        register_counter += 1
+        addr_reg = f"$t{register_counter % 10}"
+        register_counter += 1
+        
+        # Calcular offset en bytes
+        emitter.emit(f"sll {offset_reg}, {index_reg}, 2  # index * 4")
+        
+        # Calcular dirección
+        emitter.emit(f"addi {addr_reg}, $fp, {offset}")
+        emitter.emit(f"add {addr_reg}, {addr_reg}, {offset_reg}")
+        
+        # Guardar valor
+        emitter.emit(f"sw {result_reg}, 0({addr_reg})")
+    else:
+        emitter.emit_comment(f"[Error] Arreglo no encontrado: {name}")
+    
+    return result_reg
+
