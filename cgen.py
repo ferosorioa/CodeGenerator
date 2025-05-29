@@ -22,6 +22,8 @@ class CodeEmitter:
 symbol_table={}
 offset_counter=0
 register_counter = 0
+current_function_name = ""  # Track current function for epilogue labels
+
 
 def codeGen(tree, filename):
     with open(filename, 'w') as f:
@@ -96,17 +98,21 @@ def generate_code(node, emitter):
 
 #Convierte a las funciones en las instrucciones MIPS para funciones. Guarda las variables de estas funciones en un stack local.
 #Un stack personal por función
+
 def gen_function(node, emitter):
-    global symbol_table, offset_counter
-    symbol_table = {}          # Reset tabla de símbolos
-    offset_counter = 0         # Reset offset local
-    name = node.children[1].lexeme  # e.g., 'main' o 'sumUp'
+    global symbol_table, offset_counter, current_function_name
+    symbol_table = {}
+    offset_counter = 0
+    
+    name = node.children[1].lexeme
+    current_function_name = name  # Set the current function name
+    
     emitter.emit(f"{name}:")
     emitter.emit_comment("Prolog")
     emitter.emit("sw $ra, 0($sp)")
     emitter.emit("sw $fp, -4($sp)")
     emitter.emit("move $fp, $sp")
-    emitter.emit("addi $sp, $sp, -8")  # Reservar espacio mínimo
+    emitter.emit("addi $sp, $sp, -8")
     
     # Process parameters if any
     params_node = node.children[2]
@@ -118,13 +124,13 @@ def gen_function(node, emitter):
             param_offset += 4
             emitter.emit_comment(f"Parámetro {param_name} en offset {symbol_table[param_name]}")
     
-    # Generate function body (only the compound_stmt)
+    # Generate function body
     for child in node.children:
         if child.kind == 'compound_stmt':
             generate_code(child, emitter)
     
-    # Epilogue label for returns
-    emitter.emit("epilogue:")
+    # Unique epilogue label for this function
+    emitter.emit(f"{name}_epilogue:")
     emitter.emit_comment("Epilog")
     emitter.emit("move $sp, $fp")
     emitter.emit("lw $fp, -4($sp)")
@@ -136,6 +142,7 @@ def gen_function(node, emitter):
         emitter.emit("syscall")
     else:
         emitter.emit("jr $ra")
+    
     emitter.emit("")  # Empty line for readability
 
 #Analiza los compound statements "{ }". MArca su inicio y su fin y se supone que llama a todo lo que esta dentro de forma recursiva.
@@ -185,15 +192,43 @@ def gen_expression(node, emitter):
         emitter.emit(f"li {reg}, {node.lexeme}")
         return reg
 
+    # elif node.kind == 'var':
+    #     name = node.lexeme
+    #     offset = symbol_table.get(name)
+    #     reg = f"$t{register_counter % 10}"
+    #     register_counter += 1
+    #     if offset is not None:
+    #         emitter.emit(f"lw {reg}, {offset}($fp)")
+    #     else:
+    #         emitter.emit_comment(f"[Error] Variable no encontrada: {name}")
+    #     return reg
     elif node.kind == 'var':
         name = node.lexeme
         offset = symbol_table.get(name)
         reg = f"$t{register_counter % 10}"
         register_counter += 1
-        if offset is not None:
-            emitter.emit(f"lw {reg}, {offset}($fp)")
-        else:
-            emitter.emit_comment(f"[Error] Variable no encontrada: {name}")
+        
+        if len(node.children) > 0:  # Array access
+            # Calculate array index
+            index_reg = gen_expression(node.children[0], emitter)
+            offset_reg = f"$t{register_counter % 10}"
+            register_counter += 1
+            
+            # Calculate byte offset (index * 4)
+            emitter.emit(f"sll {offset_reg}, {index_reg}, 2")
+            
+            # Calculate address
+            if offset is not None:
+                emitter.emit(f"addi {offset_reg}, {offset_reg}, {offset}")
+                emitter.emit(f"add {offset_reg}, {offset_reg}, $fp")
+                emitter.emit(f"lw {reg}, 0({offset_reg})")
+            else:
+                emitter.emit_comment(f"[Error] Array no encontrado: {name}")
+        else:  # Simple variable
+            if offset is not None:
+                emitter.emit(f"lw {reg}, {offset}($fp)")
+            else:
+                emitter.emit_comment(f"[Error] Variable no encontrada: {name}")
         return reg
     
     # OTRA DEF de var, diferencia entre variable simple y arreglo
@@ -240,10 +275,13 @@ def gen_expression(node, emitter):
         right = gen_expression(node.children[1], emitter)
         reg = f"$t{register_counter % 10}"
         register_counter += 1
-        op = 'mul' if node.lexeme == '*' else 'div'
-        emitter.emit(f"{op} {reg}, {left}, {right}")
+        if node.lexeme == '*':
+            emitter.emit(f"mul {reg}, {left}, {right}")
+        else:  # division
+            emitter.emit(f"div {left}, {right}")
+            emitter.emit(f"mflo {reg}")
         return reg
-    
+
     elif node.kind == 'relop':
         return gen_relop(node, emitter)
 
@@ -251,6 +289,7 @@ def gen_expression(node, emitter):
         name = node.lexeme
         offset = symbol_table.get(name)
         result = gen_expression(node.children[0], emitter)
+        
         if offset is not None:
             emitter.emit(f"sw {result}, {offset}($fp)")
         else:
@@ -259,11 +298,6 @@ def gen_expression(node, emitter):
     
     elif node.kind == 'call':
         return gen_call(node, emitter)
-    
-    if node.kind == 'NUM':
-        return gen_num(node, emitter)
-
-    
     
     else:
         emitter.emit_comment(f"[Warning] Tipo de expresión no manejado: {node.kind}")
@@ -577,6 +611,8 @@ def gen_return_stmt(node, emitter):
     Translates return statements
     Places return value in $v0 and jumps to function epilogue
     """
+    global current_function_name
+    
     emitter.emit_comment("Return statement")
     
     # If there's a return value, evaluate it and put in $v0
@@ -584,8 +620,9 @@ def gen_return_stmt(node, emitter):
         result_reg = gen_expression(node.children[0], emitter)
         emitter.emit(f"move $v0, {result_reg}")
     
-    # Jump to function epilogue
-    emitter.emit("j epilogue")
+    # Jump to function-specific epilogue
+    function_name = current_function_name if 'current_function_name' in globals() else "epilogue"
+    emitter.emit(f"j {function_name}_epilogue")
 
 # gen_call(node, emitter)
 # Traduce una llamada a función

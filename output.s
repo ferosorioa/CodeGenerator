@@ -66,9 +66,9 @@ endwhile1:
 # Inicio de expression
 lw $t1, -8($fp)
 move $v0, $t1
-j epilogue
+j sumUp_epilogue
 # Fin de compound_stmt
-epilogue:
+sumUp_epilogue:
 # Epilog
 move $sp, $fp
 lw $fp, -4($sp)
@@ -112,7 +112,7 @@ li $v0, 4
 syscall
 # Fin de expression_stmt
 # Fin de compound_stmt
-epilogue:
+main_epilogue:
 # Epilog
 move $sp, $fp
 lw $fp, -4($sp)
