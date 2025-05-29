@@ -1,4 +1,6 @@
 # mainParser.py
+# For this code generator implementation we used the:
+# - Parser, Semantic Analyzer, and Code Generator from Emilia Salazar Leipen
 
 from globalTypes import *
 from parser import parser, globales as parser_globales
@@ -6,7 +8,7 @@ from semantica import semantica
 from cgen import *
 
 if __name__ == "__main__":
-    path = 'pruebaslu.c-' #sample.c-
+    path = 'pruebas.c-' #sample.c-
     with open(path, 'r') as f:
         prog = f.read()
     prog += '$'
