@@ -7,8 +7,10 @@ newline: .asciiz "\n"
 
 main:
 # Prolog
+addi $sp, $sp, -8
+sw $ra, 4($sp)
+sw $fp, 0($sp)
 move $fp, $sp
-addi $sp, $sp, -4
 # Inicio de compound_stmt
 # Declaración de variable: result (size = 1)
 addi $sp, $sp, -4  # Reservar espacio para result
@@ -40,6 +42,10 @@ syscall
 # Fin de compound_stmt
 main_epilogue:
 # Epilog
+move $sp, $fp
+lw $fp, 0($sp)
+lw $ra, 4($sp)
+addi $sp, $sp, 8
 li $v0, 10
 syscall
 
@@ -49,8 +55,7 @@ addi $sp, $sp, -8
 sw $ra, 4($sp)
 sw $fp, 0($sp)
 move $fp, $sp
-addi $fp, $fp, 8
-# Parámetro n en offset 0
+# Parámetro n en offset 8
 # Inicio de compound_stmt
 # Declaración de variable: i (size = 1)
 addi $sp, $sp, -4  # Reservar espacio para i
@@ -74,7 +79,7 @@ while0:
 # Inicio de expression
 lw $t5, -4($fp)
 # Inicio de expression
-lw $t6, 0($fp)
+lw $t6, 8($fp)
 slt $t7, $t5, $t6
 beq $t7, $zero, endwhile1
 # Inicio de compound_stmt
@@ -110,7 +115,7 @@ j sumUp_epilogue
 # Fin de compound_stmt
 sumUp_epilogue:
 # Epilog
-addi $sp, $fp, -8
+move $sp, $fp
 lw $fp, 0($sp)
 lw $ra, 4($sp)
 addi $sp, $sp, 8

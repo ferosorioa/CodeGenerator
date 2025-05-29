@@ -114,6 +114,7 @@ def generate_code(node, emitter):
 
 
 
+
 #Convierte a las funciones en las instrucciones MIPS para funciones. Guarda las variables de estas funciones en un stack local.
 #Un stack personal por función
 
@@ -128,23 +129,24 @@ def gen_function(node, emitter):
     emitter.emit(f"{name}:")
     emitter.emit_comment("Prolog")
     
-    # For main function, we need to be more careful with initial stack
+    # For main function, handle differently since it's the entry point
     if name == "main":
-        # Don't save $ra for main since it's the entry point
-        emitter.emit("move $fp, $sp")  # Set frame pointer
-        emitter.emit("addi $sp, $sp, -4")  # Just reserve minimal space
+        # Save return address and frame pointer for main too
+        emitter.emit("addi $sp, $sp, -8")      # Reserve space for $ra and $fp
+        emitter.emit("sw $ra, 4($sp)")         # Save return address
+        emitter.emit("sw $fp, 0($sp)")         # Save old frame pointer
+        emitter.emit("move $fp, $sp")          # Set new frame pointer
     else:
         # For other functions, save return address and old frame pointer
-        emitter.emit("addi $sp, $sp, -8")  # Make space first
-        emitter.emit("sw $ra, 4($sp)")     # Save return address
-        emitter.emit("sw $fp, 0($sp)")     # Save frame pointer
-        emitter.emit("move $fp, $sp")      # Set new frame pointer
-        emitter.emit("addi $fp, $fp, 8")   # Adjust fp to point to the original sp
+        emitter.emit("addi $sp, $sp, -8")      # Make space first
+        emitter.emit("sw $ra, 4($sp)")         # Save return address
+        emitter.emit("sw $fp, 0($sp)")         # Save frame pointer
+        emitter.emit("move $fp, $sp")          # Set new frame pointer
     
     # Process parameters if any
     params_node = node.children[2]
     if params_node.children and params_node.children[0].kind != 'VOID':
-        param_offset = 0  # Parameters are at positive offsets from $fp
+        param_offset = 8  # Parameters are at positive offsets from $fp (after saved registers)
         for i, param in enumerate(params_node.children[0].children):
             param_name = param.children[1].lexeme
             symbol_table[param_name] = param_offset
@@ -161,16 +163,20 @@ def gen_function(node, emitter):
     emitter.emit_comment("Epilog")
     
     if name == "main":
-        # For main, just exit
-        emitter.emit("li $v0, 10")
+        # For main, restore stack and exit
+        emitter.emit("move $sp, $fp")          # Restore stack pointer
+        emitter.emit("lw $fp, 0($sp)")         # Restore frame pointer
+        emitter.emit("lw $ra, 4($sp)")         # Restore return address
+        emitter.emit("addi $sp, $sp, 8")       # Clean up stack
+        emitter.emit("li $v0, 10")             # Exit syscall
         emitter.emit("syscall")
     else:
-        # Restore everything
-        emitter.emit("addi $sp, $fp, -8")  # Restore sp to where we saved registers
-        emitter.emit("lw $fp, 0($sp)")     # Restore frame pointer
-        emitter.emit("lw $ra, 4($sp)")     # Restore return address
-        emitter.emit("addi $sp, $sp, 8")   # Clean up stack
-        emitter.emit("jr $ra")
+        # For other functions, restore everything and return
+        emitter.emit("move $sp, $fp")          # Restore stack pointer
+        emitter.emit("lw $fp, 0($sp)")         # Restore frame pointer
+        emitter.emit("lw $ra, 4($sp)")         # Restore return address
+        emitter.emit("addi $sp, $sp, 8")       # Clean up stack
+        emitter.emit("jr $ra")                 # Return
     
     emitter.emit("")  # Empty line for readability
 
