@@ -31,6 +31,7 @@ def codeGen(tree, filename):
 
         emitter.emit(".data")
         emitter.emit("newline: .asciiz \"\\n\"")
+        emitter.emit("")
         emitter.emit(".text")
         
         # First pass: declare all functions as global
@@ -39,10 +40,27 @@ def codeGen(tree, filename):
                 func_name = child.children[1].lexeme
                 emitter.emit(f".globl {func_name}")
         
-        emitter.emit("")  # Empty line for readability
+        emitter.emit("")
         
-        # Second pass: generate code
-        generate_code(tree, emitter)
+        # Second pass: generate main first, then other functions
+        # Find and generate main function first
+        main_func = None
+        other_funcs = []
+        
+        for child in tree.children:
+            if child.kind == 'fun_decl':
+                if child.children[1].lexeme == 'main':
+                    main_func = child
+                else:
+                    other_funcs.append(child)
+        
+        # Generate main first
+        if main_func:
+            generate_code(main_func, emitter)
+        
+        # Then generate other functions
+        for func in other_funcs:
+            generate_code(func, emitter)
 
 def generate_code(node, emitter):
     if node is None:
@@ -109,15 +127,24 @@ def gen_function(node, emitter):
     
     emitter.emit(f"{name}:")
     emitter.emit_comment("Prolog")
-    emitter.emit("sw $ra, 0($sp)")
-    emitter.emit("sw $fp, -4($sp)")
-    emitter.emit("move $fp, $sp")
-    emitter.emit("addi $sp, $sp, -8")
+    
+    # For main function, we need to be more careful with initial stack
+    if name == "main":
+        # Don't save $ra for main since it's the entry point
+        emitter.emit("move $fp, $sp")  # Set frame pointer
+        emitter.emit("addi $sp, $sp, -4")  # Just reserve minimal space
+    else:
+        # For other functions, save return address and old frame pointer
+        emitter.emit("addi $sp, $sp, -8")  # Make space first
+        emitter.emit("sw $ra, 4($sp)")     # Save return address
+        emitter.emit("sw $fp, 0($sp)")     # Save frame pointer
+        emitter.emit("move $fp, $sp")      # Set new frame pointer
+        emitter.emit("addi $fp, $fp, 8")   # Adjust fp to point to the original sp
     
     # Process parameters if any
     params_node = node.children[2]
     if params_node.children and params_node.children[0].kind != 'VOID':
-        param_offset = 8  # Parameters are above the frame pointer
+        param_offset = 0  # Parameters are at positive offsets from $fp
         for i, param in enumerate(params_node.children[0].children):
             param_name = param.children[1].lexeme
             symbol_table[param_name] = param_offset
@@ -132,15 +159,17 @@ def gen_function(node, emitter):
     # Unique epilogue label for this function
     emitter.emit(f"{name}_epilogue:")
     emitter.emit_comment("Epilog")
-    emitter.emit("move $sp, $fp")
-    emitter.emit("lw $fp, -4($sp)")
-    emitter.emit("lw $ra, 0($sp)")
     
-    # Special case for main function - exit syscall
     if name == "main":
+        # For main, just exit
         emitter.emit("li $v0, 10")
         emitter.emit("syscall")
     else:
+        # Restore everything
+        emitter.emit("addi $sp, $fp, -8")  # Restore sp to where we saved registers
+        emitter.emit("lw $fp, 0($sp)")     # Restore frame pointer
+        emitter.emit("lw $ra, 4($sp)")     # Restore return address
+        emitter.emit("addi $sp, $sp, 8")   # Clean up stack
         emitter.emit("jr $ra")
     
     emitter.emit("")  # Empty line for readability
@@ -665,27 +694,23 @@ def gen_call(node, emitter):
     
     else:
         # User-defined function
-        # Save current state
-        emitter.emit("addi $sp, $sp, -4")
-        emitter.emit("sw $ra, 0($sp)")
-        
-        # Evaluate and pass arguments
+        # Evaluate and pass arguments on stack
         if node.children and node.children[0].children:
             args_list = node.children[0].children[0].children
-            for i, arg in enumerate(args_list):
-                if i < 4:  # First 4 args in $a0-$a3
-                    arg_reg = gen_expression(arg, emitter)
-                    emitter.emit(f"move $a{i}, {arg_reg}")
-                else:
-                    # Additional args on stack (not implemented for simplicity)
-                    emitter.emit_comment("Additional arguments not supported")
+            # Push arguments in reverse order
+            for i in range(len(args_list)-1, -1, -1):
+                arg_reg = gen_expression(args_list[i], emitter)
+                emitter.emit("addi $sp, $sp, -4")
+                emitter.emit(f"sw {arg_reg}, 0($sp)")
         
         # Call function
         emitter.emit(f"jal {func_name}")
         
-        # Restore state
-        emitter.emit("lw $ra, 0($sp)")
-        emitter.emit("addi $sp, $sp, 4")
+        # Clean up arguments from stack
+        if node.children and node.children[0].children:
+            args_list = node.children[0].children[0].children
+            if len(args_list) > 0:
+                emitter.emit(f"addi $sp, $sp, {4 * len(args_list)}")
         
         # Result is in $v0
         result_reg = f"$t{register_counter % 10}"
