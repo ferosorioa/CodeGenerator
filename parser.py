@@ -217,7 +217,13 @@ def compound_stmt():
 def local_declarations():
     node = ASTNode('local_declarations')
     while token in {TokenType.INT, TokenType.VOID}:
-        node.add(declaration())
+        decl = declaration()
+        if isinstance(decl, list):
+            # Handle multiple declarations
+            for d in decl:
+                node.add(d)
+        else:
+            node.add(decl)
     return node
 
 # 8. statement-list
@@ -292,11 +298,22 @@ def expression():
     if token == TokenType.EQ:
         if not (isinstance(node, ASTNode) and node.kind=='var'):
             error("La parte izquierda de la asignación debe ser una variable")
-        nm = node.lexeme
+        
+        # Store the entire var node (including index if present)
+        var_node = node
         match(TokenType.EQ)
         rhs = expression()
-        assign = ASTNode('assign', nm)
-        assign.add(rhs)
+        
+        # Create assignment node
+        assign = ASTNode('assign', var_node.lexeme)
+        
+        # If the variable has an index (array assignment), add it first
+        if var_node.children:  # Array assignment: var[index] = value
+            assign.add(rhs)                   # Add value FIRST
+            assign.add(var_node.children[0])  # Add index SECOND
+        else:  # Simple assignment: var = value
+            assign.add(rhs)
+        
         return assign
     return node
 

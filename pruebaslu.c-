@@ -1,17 +1,90 @@
-int sumUp(int n) {
+/* Fixed C- Program */
+
+int findMax(int arr[], int size) {
+    int max;
     int i;
-    int total;
-    i = 0;
-    total = 0;
-    while (i < n) {
-        total = total + i;
+    max = arr[0];
+    i = 1;
+    while (i < size) {
+        if (arr[i] > max) {
+            max = arr[i];
+        }
         i = i + 1;
     }
-    return total;
+    return max;
+}
+
+int calculateSum(int arr[], int size) {
+    int sum;
+    int i;
+    sum = 0;
+    i = 0;
+    while (i < size) {
+        sum = sum + arr[i];
+        i = i + 1;
+    }
+    return sum;
+}
+
+int factorial(int n) {
+    int result;
+    int i;
+    if (n <= 1) {
+        return 1;
+    } else {
+        result = 1;
+        i = 2;
+        while (i <= n) {
+            result = result * i;
+            i = i + 1;
+        }
+        return result;
+    }
 }
 
 void main(void) {
-    int result;
-    result = sumUp(10);
-    output(result);
+    int numbers[5];
+    int i;
+    int size;
+    int maximum;
+    int total;
+    int fact;
+    
+    size = 5;
+    numbers[0] = 15;
+    numbers[1] = 3;
+    numbers[2] = 27;
+    numbers[3] = 8;
+    numbers[4] = 19;
+    
+    output(999);
+    i = 0;
+    while (i < size) {
+        output(numbers[i]);
+        i = i + 1;
+    }
+    
+    maximum = findMax(numbers, size);
+    output(888);
+    output(maximum);
+    
+    total = calculateSum(numbers, size);
+    output(777);
+    output(total);
+    
+    if (maximum <= 10) {
+        fact = factorial(maximum);
+        output(666);
+        output(fact);
+    } else {
+        output(555);
+    }
+    
+    output(444);
+    i = 0;
+    while (i < size) {
+        numbers[i] = numbers[i] * 2;
+        output(numbers[i]);
+        i = i + 1;
+    }
 }

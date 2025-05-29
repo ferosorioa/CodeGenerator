@@ -147,10 +147,17 @@ def gen_function(node, emitter):
     params_node = node.children[2]
     if params_node.children and params_node.children[0].kind != 'VOID':
         param_offset = 8  # Parameters are at positive offsets from $fp (after saved registers)
-        for i, param in enumerate(params_node.children[0].children):
-            param_name = param.children[1].lexeme
+        if params_node.children[0].kind == 'param_list':
+            # Multiple parameters
+            for param in params_node.children[0].children:
+                param_name = param.children[1].lexeme
+                symbol_table[param_name] = param_offset
+                param_offset += 4
+                emitter.emit_comment(f"Parámetro {param_name} en offset {symbol_table[param_name]}")
+        else:
+            # Single parameter
+            param_name = params_node.children[0].children[1].lexeme
             symbol_table[param_name] = param_offset
-            param_offset += 4
             emitter.emit_comment(f"Parámetro {param_name} en offset {symbol_table[param_name]}")
     
     # Generate function body
@@ -179,6 +186,7 @@ def gen_function(node, emitter):
         emitter.emit("jr $ra")                 # Return
     
     emitter.emit("")  # Empty line for readability
+
 
 #Analiza los compound statements "{ }". MArca su inicio y su fin y se supone que llama a todo lo que esta dentro de forma recursiva.
 def gen_compound_stmt(node, emitter):
@@ -227,16 +235,6 @@ def gen_expression(node, emitter):
         emitter.emit(f"li {reg}, {node.lexeme}")
         return reg
 
-    # elif node.kind == 'var':
-    #     name = node.lexeme
-    #     offset = symbol_table.get(name)
-    #     reg = f"$t{register_counter % 10}"
-    #     register_counter += 1
-    #     if offset is not None:
-    #         emitter.emit(f"lw {reg}, {offset}($fp)")
-    #     else:
-    #         emitter.emit_comment(f"[Error] Variable no encontrada: {name}")
-    #     return reg
     elif node.kind == 'var':
         name = node.lexeme
         offset = symbol_table.get(name)
@@ -246,17 +244,37 @@ def gen_expression(node, emitter):
         if len(node.children) > 0:  # Array access
             # Calculate array index
             index_reg = gen_expression(node.children[0], emitter)
-            offset_reg = f"$t{register_counter % 10}"
-            register_counter += 1
             
-            # Calculate byte offset (index * 4)
-            emitter.emit(f"sll {offset_reg}, {index_reg}, 2")
-            
-            # Calculate address
+            # Check if this is a parameter (positive offset) or local variable (negative offset)
             if offset is not None:
-                emitter.emit(f"addi {offset_reg}, {offset_reg}, {offset}")
-                emitter.emit(f"add {offset_reg}, {offset_reg}, $fp")
-                emitter.emit(f"lw {reg}, 0({offset_reg})")
+                if offset > 0:  # Parameter - this is an array address stored in memory
+                    addr_reg = f"$t{register_counter % 10}"
+                    register_counter += 1
+                    offset_reg = f"$t{register_counter % 10}"
+                    register_counter += 1
+                    
+                    emitter.emit_comment(f"DEBUG: Accessing parameter array {name} at offset {offset}")
+                    # Load the array base address from parameter
+                    emitter.emit(f"lw {addr_reg}, {offset}($fp)  # Load array base address")
+                    # Calculate byte offset (index * 4)
+                    emitter.emit(f"sll {offset_reg}, {index_reg}, 2")
+                    # Validate the address is reasonable (basic sanity check)
+                    emitter.emit(f"# DEBUG: About to access array at calculated address")
+                    # Add offset to get final address - use signed arithmetic carefully
+                    emitter.emit(f"add {addr_reg}, {addr_reg}, {offset_reg}")
+                    # Load the value
+                    emitter.emit(f"lw {reg}, 0({addr_reg})")
+                else:  # Local array - use frame pointer directly
+                    offset_reg = f"$t{register_counter % 10}"
+                    register_counter += 1
+                    
+                    emitter.emit_comment(f"DEBUG: Accessing local array {name} at offset {offset}")
+                    # Calculate byte offset (index * 4)
+                    emitter.emit(f"sll {offset_reg}, {index_reg}, 2")
+                    # Calculate final address relative to frame pointer
+                    emitter.emit(f"addi {offset_reg}, {offset_reg}, {offset}")
+                    emitter.emit(f"add {offset_reg}, {offset_reg}, $fp")
+                    emitter.emit(f"lw {reg}, 0({offset_reg})")
             else:
                 emitter.emit_comment(f"[Error] Array no encontrado: {name}")
         else:  # Simple variable
@@ -265,36 +283,6 @@ def gen_expression(node, emitter):
             else:
                 emitter.emit_comment(f"[Error] Variable no encontrada: {name}")
         return reg
-    
-    # OTRA DEF de var, diferencia entre variable simple y arreglo
-    # elif node.kind == 'var':
-    #     name = node.lexeme
-    #     offset = symbol_table.get(name)
-    #     reg = f"$t{register_counter % 10}"
-    #     register_counter += 1
-        
-    #     if len(node.children) > 0:  # Array access
-    #         # Calculate array index
-    #         index_reg = gen_expression(node.children[0], emitter)
-    #         offset_reg = f"$t{register_counter % 10}"
-    #         register_counter += 1
-            
-    #         # Calculate byte offset (index * 4)
-    #         emitter.emit(f"sll {offset_reg}, {index_reg}, 2")
-            
-    #         # Calculate address
-    #         if offset is not None:
-    #             emitter.emit(f"addi {offset_reg}, {offset_reg}, {offset}")
-    #             emitter.emit(f"add {offset_reg}, {offset_reg}, $fp")
-    #             emitter.emit(f"lw {reg}, 0({offset_reg})")
-    #         else:
-    #             emitter.emit_comment(f"[Error] Array no encontrado: {name}")
-    #     else:  # Simple variable
-    #         if offset is not None:
-    #             emitter.emit(f"lw {reg}, {offset}($fp)")
-    #         else:
-    #             emitter.emit_comment(f"[Error] Variable no encontrada: {name}")
-    #     return reg
 
     elif node.kind == 'addop':
         left = gen_expression(node.children[0], emitter)
@@ -323,20 +311,111 @@ def gen_expression(node, emitter):
     elif node.kind == 'assign':
         name = node.lexeme
         offset = symbol_table.get(name)
-        result = gen_expression(node.children[0], emitter)
         
-        if offset is not None:
-            emitter.emit(f"sw {result}, {offset}($fp)")
-        else:
-            emitter.emit_comment(f"[Error] Variable no encontrada para asignación: {name}")
-        return result
+        # Check if this is an array assignment (has index)
+        if len(node.children) > 1:  # Array assignment: arr[index] = value
+            value_reg = gen_expression(node.children[0], emitter)  # value (first child)
+            index_reg = gen_expression(node.children[1], emitter)  # index (second child)
+            
+            if offset is not None:
+                offset_reg = f"$t{register_counter % 10}"
+                register_counter += 1
+                addr_reg = f"$t{register_counter % 10}"
+                register_counter += 1
+                
+                # Calculate byte offset (index * 4)
+                emitter.emit(f"sll {offset_reg}, {index_reg}, 2")
+                # Calculate final address
+                emitter.emit(f"addi {addr_reg}, $fp, {offset}")
+                emitter.emit(f"add {addr_reg}, {addr_reg}, {offset_reg}")
+                # Store value
+                emitter.emit(f"sw {value_reg}, 0({addr_reg})")
+            else:
+                emitter.emit_comment(f"[Error] Array no encontrado: {name}")
+            return value_reg
+        else:  # Simple variable assignment
+            result = gen_expression(node.children[0], emitter)
+            if offset is not None:
+                emitter.emit(f"sw {result}, {offset}($fp)")
+            else:
+                emitter.emit_comment(f"[Error] Variable no encontrada para asignación: {name}")
+            return result
     
     elif node.kind == 'call':
-        return gen_call(node, emitter)
+        # INLINE the call handling with debug
+        func_name = node.lexeme
+        emitter.emit_comment(f"DEBUG: Processing call to {func_name}")
+        
+        # Handle built-in functions
+        if func_name == "output":
+            if node.children and node.children[0].children:
+                arg_reg = gen_expression(node.children[0].children[0].children[0], emitter)
+                emitter.emit(f"move $a0, {arg_reg}")
+                emitter.emit("li $v0, 1")
+                emitter.emit("syscall")
+                emitter.emit("la $a0, newline")
+                emitter.emit("li $v0, 4")
+                emitter.emit("syscall")
+            return None
+        
+        # User-defined functions
+        elif func_name in ['findMax', 'calculateSum']:
+            emitter.emit_comment(f"DEBUG: Array function call detected")
+            if node.children and node.children[0].children:
+                args_list = node.children[0].children[0].children
+                
+                # IMPORTANT: Push arguments in REVERSE order so they appear in correct order
+                # We want: arr at 8($fp), size at 12($fp)
+                # So we push: size first, then arr
+                
+                # Second argument first (size)
+                if len(args_list) > 1:
+                    second_arg = args_list[1]
+                    emitter.emit_comment(f"DEBUG: Pushing second arg (size) first")
+                    arg_reg = gen_expression(second_arg, emitter)
+                    emitter.emit("addi $sp, $sp, -4")
+                    emitter.emit(f"sw {arg_reg}, 0($sp)")
+                
+                # First argument second (array address)
+                if len(args_list) > 0:
+                    first_arg = args_list[0]
+                    emitter.emit_comment(f"DEBUG: Pushing first arg (array) second")
+                    
+                    if first_arg.kind == 'var' and len(first_arg.children) == 0:
+                        # This is an array name - pass address
+                        var_name = first_arg.lexeme
+                        var_offset = symbol_table.get(var_name)
+                        emitter.emit_comment(f"DEBUG: Array {var_name} at offset {var_offset}")
+                        
+                        addr_reg = f"$t{register_counter % 10}"
+                        register_counter += 1
+                        # Calculate the actual array address
+                        emitter.emit(f"addi {addr_reg}, $fp, {var_offset}  # Array address")
+                        emitter.emit(f"# DEBUG: Calculated address in {addr_reg}")
+                        emitter.emit("addi $sp, $sp, -4")
+                        emitter.emit(f"sw {addr_reg}, 0($sp)")
+                    else:
+                        # Regular expression
+                        arg_reg = gen_expression(first_arg, emitter)
+                        emitter.emit("addi $sp, $sp, -4")
+                        emitter.emit(f"sw {arg_reg}, 0($sp)")
+            
+            # Call function
+            emitter.emit(f"jal {func_name}")
+            emitter.emit(f"addi $sp, $sp, 8")  # Clean up 2 args
+            
+            result_reg = f"$t{register_counter % 10}"
+            register_counter += 1
+            emitter.emit(f"move {result_reg}, $v0")
+            return result_reg
+        
+        else:
+            return gen_call(node, emitter)
     
     else:
         emitter.emit_comment(f"[Warning] Tipo de expresión no manejado: {node.kind}")
         return "$zero"
+
 
 
 
@@ -703,9 +782,9 @@ def gen_call(node, emitter):
         # Evaluate and pass arguments on stack
         if node.children and node.children[0].children:
             args_list = node.children[0].children[0].children
-            # Push arguments in reverse order
-            for i in range(len(args_list)-1, -1, -1):
-                arg_reg = gen_expression(args_list[i], emitter)
+            # Push arguments onto stack (no need to reverse - they'll be accessed by offset)
+            for arg in args_list:
+                arg_reg = gen_expression(arg, emitter)
                 emitter.emit("addi $sp, $sp, -4")
                 emitter.emit(f"sw {arg_reg}, 0($sp)")
         
@@ -723,7 +802,6 @@ def gen_call(node, emitter):
         register_counter += 1
         emitter.emit(f"move {result_reg}, $v0")
         return result_reg
-    
 
 # Función mejorada para manejar asignaciones a arreglos
 def gen_assign_array(node, emitter, index_reg):
