@@ -22,7 +22,7 @@ class CodeEmitter:
 symbol_table={}
 offset_counter=0
 register_counter = 0
-current_function_name = ""  # Track current function for epilogue labels
+current_function_name = ""  
 
 
 def codeGen(tree, filename):
@@ -34,7 +34,7 @@ def codeGen(tree, filename):
         emitter.emit("")
         emitter.emit(".text")
         
-        # First pass: declare all functions as global
+        # Declara las funciones globales
         for child in tree.children:
             if child.kind == 'fun_decl':
                 func_name = child.children[1].lexeme
@@ -42,8 +42,7 @@ def codeGen(tree, filename):
         
         emitter.emit("")
         
-        # Second pass: generate main first, then other functions
-        # Find and generate main function first
+        # Genera primero la función main y luego las demás
         main_func = None
         other_funcs = []
         
@@ -54,11 +53,11 @@ def codeGen(tree, filename):
                 else:
                     other_funcs.append(child)
         
-        # Generate main first
+        # genera la función main primero
         if main_func:
             generate_code(main_func, emitter)
         
-        # Then generate other functions
+        # genera las demás funciones
         for func in other_funcs:
             generate_code(func, emitter)
 
@@ -101,11 +100,11 @@ def generate_code(node, emitter):
         for child in node.children:
             generate_code(child, emitter)
     
-    # Don't process these nodes - they're handled by their parents
+    # no processamos directamente los nodos de tipo 'ID', 'NUM', etc.
     elif node.kind in ['type_specifier', 'ID', 'params', 'VOID', 'param_list', 'param', 'args', 'arg_list']:
         pass
     
-    # Expressions - normally not independent statements
+    # expresiones y operaciones
     elif node.kind in ['assign', 'addop', 'mulop', 'relop', 'var', 'NUM', 'call']:
         gen_expression(node, emitter)
     
@@ -115,7 +114,6 @@ def generate_code(node, emitter):
 
 
 
-#Convierte a las funciones en las instrucciones MIPS para funciones. Guarda las variables de estas funciones en un stack local.
 #Un stack personal por función
 
 def gen_function(node, emitter):
@@ -124,53 +122,51 @@ def gen_function(node, emitter):
     offset_counter = 0
     
     name = node.children[1].lexeme
-    current_function_name = name  # Set the current function name
+    current_function_name = name  # nombre de la función actual
     
     emitter.emit(f"{name}:")
     emitter.emit_comment("Prolog")
     
-    # For main function, handle differently since it's the entry point
+    
     if name == "main":
-        # Save return address and frame pointer for main too
         emitter.emit("addi $sp, $sp, -8")      # Reserve space for $ra and $fp
         emitter.emit("sw $ra, 4($sp)")         # Save return address
         emitter.emit("sw $fp, 0($sp)")         # Save old frame pointer
         emitter.emit("move $fp, $sp")          # Set new frame pointer
     else:
-        # For other functions, save return address and old frame pointer
         emitter.emit("addi $sp, $sp, -8")      # Make space first
         emitter.emit("sw $ra, 4($sp)")         # Save return address
         emitter.emit("sw $fp, 0($sp)")         # Save frame pointer
         emitter.emit("move $fp, $sp")          # Set new frame pointer
     
-    # Process parameters if any
+    # Procesar parámetros
     params_node = node.children[2]
     if params_node.children and params_node.children[0].kind != 'VOID':
-        param_offset = 8  # Parameters are at positive offsets from $fp (after saved registers)
+        param_offset = 8  #parametros empiezan en 8($fp) para main, 12($fp) para otras funciones
         if params_node.children[0].kind == 'param_list':
-            # Multiple parameters
+            # Multiples parametros
             for param in params_node.children[0].children:
                 param_name = param.children[1].lexeme
                 symbol_table[param_name] = param_offset
                 param_offset += 4
                 emitter.emit_comment(f"Parámetro {param_name} en offset {symbol_table[param_name]}")
         else:
-            # Single parameter
+            # Solo un parámetro
             param_name = params_node.children[0].children[1].lexeme
             symbol_table[param_name] = param_offset
             emitter.emit_comment(f"Parámetro {param_name} en offset {symbol_table[param_name]}")
     
-    # Generate function body
+    # Genera código para declaraciones locales
     for child in node.children:
         if child.kind == 'compound_stmt':
             generate_code(child, emitter)
     
-    # Unique epilogue label for this function
+    # unicamente un epílogo
     emitter.emit(f"{name}_epilogue:")
     emitter.emit_comment("Epilog")
     
     if name == "main":
-        # For main, restore stack and exit
+        # restore stack and exit
         emitter.emit("move $sp, $fp")          # Restore stack pointer
         emitter.emit("lw $fp, 0($sp)")         # Restore frame pointer
         emitter.emit("lw $ra, 4($sp)")         # Restore return address
@@ -178,14 +174,14 @@ def gen_function(node, emitter):
         emitter.emit("li $v0, 10")             # Exit syscall
         emitter.emit("syscall")
     else:
-        # For other functions, restore everything and return
+        # restore everything and return
         emitter.emit("move $sp, $fp")          # Restore stack pointer
         emitter.emit("lw $fp, 0($sp)")         # Restore frame pointer
         emitter.emit("lw $ra, 4($sp)")         # Restore return address
         emitter.emit("addi $sp, $sp, 8")       # Clean up stack
         emitter.emit("jr $ra")                 # Return
     
-    emitter.emit("")  # Empty line for readability
+    emitter.emit("")  # para visualización, dejar una línea en blanco
 
 
 #Analiza los compound statements "{ }". MArca su inicio y su fin y se supone que llama a todo lo que esta dentro de forma recursiva.
@@ -242,36 +238,27 @@ def gen_expression(node, emitter):
         register_counter += 1
         
         if len(node.children) > 0:  # Array access
-            # Calculate array index
             index_reg = gen_expression(node.children[0], emitter)
             
-            # Check if this is a parameter (positive offset) or local variable (negative offset)
             if offset is not None:
-                if offset > 0:  # Parameter - this is an array address stored in memory
+                if offset > 0:  
                     addr_reg = f"$t{register_counter % 10}"
                     register_counter += 1
                     offset_reg = f"$t{register_counter % 10}"
                     register_counter += 1
                     
                     emitter.emit_comment(f"DEBUG: Accessing parameter array {name} at offset {offset}")
-                    # Load the array base address from parameter
                     emitter.emit(f"lw {addr_reg}, {offset}($fp)  # Load array base address")
-                    # Calculate byte offset (index * 4)
                     emitter.emit(f"sll {offset_reg}, {index_reg}, 2")
-                    # Validate the address is reasonable (basic sanity check)
                     emitter.emit(f"# DEBUG: About to access array at calculated address")
-                    # Add offset to get final address - use signed arithmetic carefully
                     emitter.emit(f"add {addr_reg}, {addr_reg}, {offset_reg}")
-                    # Load the value
                     emitter.emit(f"lw {reg}, 0({addr_reg})")
                 else:  # Local array - use frame pointer directly
                     offset_reg = f"$t{register_counter % 10}"
                     register_counter += 1
                     
                     emitter.emit_comment(f"DEBUG: Accessing local array {name} at offset {offset}")
-                    # Calculate byte offset (index * 4)
                     emitter.emit(f"sll {offset_reg}, {index_reg}, 2")
-                    # Calculate final address relative to frame pointer
                     emitter.emit(f"addi {offset_reg}, {offset_reg}, {offset}")
                     emitter.emit(f"add {offset_reg}, {offset_reg}, $fp")
                     emitter.emit(f"lw {reg}, 0({offset_reg})")
@@ -312,10 +299,10 @@ def gen_expression(node, emitter):
         name = node.lexeme
         offset = symbol_table.get(name)
         
-        # Check if this is an array assignment (has index)
-        if len(node.children) > 1:  # Array assignment: arr[index] = value
-            value_reg = gen_expression(node.children[0], emitter)  # value (first child)
-            index_reg = gen_expression(node.children[1], emitter)  # index (second child)
+       
+        if len(node.children) > 1:  
+            value_reg = gen_expression(node.children[0], emitter)  
+            index_reg = gen_expression(node.children[1], emitter)  
             
             if offset is not None:
                 offset_reg = f"$t{register_counter % 10}"
@@ -323,17 +310,14 @@ def gen_expression(node, emitter):
                 addr_reg = f"$t{register_counter % 10}"
                 register_counter += 1
                 
-                # Calculate byte offset (index * 4)
                 emitter.emit(f"sll {offset_reg}, {index_reg}, 2")
-                # Calculate final address
                 emitter.emit(f"addi {addr_reg}, $fp, {offset}")
                 emitter.emit(f"add {addr_reg}, {addr_reg}, {offset_reg}")
-                # Store value
                 emitter.emit(f"sw {value_reg}, 0({addr_reg})")
             else:
                 emitter.emit_comment(f"[Error] Array no encontrado: {name}")
             return value_reg
-        else:  # Simple variable assignment
+        else:  # Simple variable 
             result = gen_expression(node.children[0], emitter)
             if offset is not None:
                 emitter.emit(f"sw {result}, {offset}($fp)")
@@ -342,10 +326,7 @@ def gen_expression(node, emitter):
             return result
     
     elif node.kind == 'call':
-        # INLINE the call handling with debug
         func_name = node.lexeme
-        emitter.emit_comment(f"DEBUG: Processing call to {func_name}")
-        
         # Handle built-in functions
         if func_name == "output":
             if node.children and node.children[0].children:
@@ -358,17 +339,11 @@ def gen_expression(node, emitter):
                 emitter.emit("syscall")
             return None
         
-        # User-defined functions
         elif func_name in ['findMax', 'calculateSum']:
             emitter.emit_comment(f"DEBUG: Array function call detected")
             if node.children and node.children[0].children:
                 args_list = node.children[0].children[0].children
                 
-                # IMPORTANT: Push arguments in REVERSE order so they appear in correct order
-                # We want: arr at 8($fp), size at 12($fp)
-                # So we push: size first, then arr
-                
-                # Second argument first (size)
                 if len(args_list) > 1:
                     second_arg = args_list[1]
                     emitter.emit_comment(f"DEBUG: Pushing second arg (size) first")
@@ -376,7 +351,6 @@ def gen_expression(node, emitter):
                     emitter.emit("addi $sp, $sp, -4")
                     emitter.emit(f"sw {arg_reg}, 0($sp)")
                 
-                # First argument second (array address)
                 if len(args_list) > 0:
                     first_arg = args_list[0]
                     emitter.emit_comment(f"DEBUG: Pushing first arg (array) second")
@@ -421,25 +395,6 @@ def gen_expression(node, emitter):
 
 # === Funciones necesarias para traducir el AST a MIPS ===
 
-# gen_compound_stmt(node, emitter)
-# Traduce un bloque de código `{ ... }`.
-# - Llama a gen_var_decl para reservar espacio en stack
-# - Luego traduce cada statement del bloque con generate_code
-
-
-# gen_var_decl(node, emitter)
-# Traduce declaraciones de variables locales.
-# - Reserva espacio en el stack
-# - Actualiza la tabla de símbolos con el offset de cada variable
-
-# gen_expression_stmt(node, emitter)
-# Traduce una expresión como statement. Ej: `x = a + b;`
-# - Solo llama a gen_expression y descarta el resultado (salvo si es asignación)
-
-# gen_assign(node, emitter)
-# Traduce una asignación `x = expr`.
-# - Evalúa el lado derecho (gen_expression)
-# - Busca el offset de `x` y guarda el resultado con sw
 def gen_assign(node, emitter):
     """
     Traduce una asignación `x = expr`.
@@ -465,15 +420,7 @@ def gen_assign(node, emitter):
     
     return result_reg
 
-# gen_expression(node, emitter)
-# Traduce una expresión general: puede ser NUM, var, addop, mulop, call, etc.
-# - Retorna el registro donde queda el resultado
-# - Puede llamar recursivamente a gen_addop, gen_mulop, etc.
 
-# gen_var(node, emitter)
-# Traduce una variable:
-# - Si es simple (`x`), la carga desde stack (lw)
-# - Si es un arreglo indexado (`data[i]`), calcula offset dinámico y hace lw
 def gen_var(node, emitter):
     """
     Traduce una variable:

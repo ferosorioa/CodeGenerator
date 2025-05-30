@@ -89,7 +89,6 @@ sw $t7, 0($t0)
 # Fin de expression_stmt
 # Inicio de expression_stmt
 # Inicio de expression
-# DEBUG: Processing call to output
 # Inicio de expression
 li $t1, 999
 move $a0, $t1
@@ -117,7 +116,6 @@ beq $t5, $zero, endwhile1
 # Inicio de compound_stmt
 # Inicio de expression_stmt
 # Inicio de expression
-# DEBUG: Processing call to output
 # Inicio de expression
 # Inicio de expression
 lw $t7, -24($fp)
@@ -150,7 +148,6 @@ endwhile1:
 # Inicio de expression_stmt
 # Inicio de expression
 # Inicio de expression
-# DEBUG: Processing call to findMax
 # DEBUG: Array function call detected
 # DEBUG: Pushing second arg (size) first
 # Inicio de expression
@@ -170,7 +167,6 @@ sw $t4, -32($fp)
 # Fin de expression_stmt
 # Inicio de expression_stmt
 # Inicio de expression
-# DEBUG: Processing call to output
 # Inicio de expression
 li $t5, 888
 move $a0, $t5
@@ -182,7 +178,6 @@ syscall
 # Fin de expression_stmt
 # Inicio de expression_stmt
 # Inicio de expression
-# DEBUG: Processing call to output
 # Inicio de expression
 lw $t6, -32($fp)
 move $a0, $t6
@@ -195,7 +190,6 @@ syscall
 # Inicio de expression_stmt
 # Inicio de expression
 # Inicio de expression
-# DEBUG: Processing call to calculateSum
 # DEBUG: Array function call detected
 # DEBUG: Pushing second arg (size) first
 # Inicio de expression
@@ -215,7 +209,6 @@ sw $t9, -36($fp)
 # Fin de expression_stmt
 # Inicio de expression_stmt
 # Inicio de expression
-# DEBUG: Processing call to output
 # Inicio de expression
 li $t0, 777
 move $a0, $t0
@@ -227,7 +220,6 @@ syscall
 # Fin de expression_stmt
 # Inicio de expression_stmt
 # Inicio de expression
-# DEBUG: Processing call to output
 # Inicio de expression
 lw $t1, -36($fp)
 move $a0, $t1
@@ -250,7 +242,6 @@ beq $t4, $zero, else2
 # Inicio de expression_stmt
 # Inicio de expression
 # Inicio de expression
-# DEBUG: Processing call to factorial
 # Llamada a función: factorial
 # Inicio de expression
 lw $t5, -32($fp)
@@ -263,7 +254,6 @@ sw $t6, -40($fp)
 # Fin de expression_stmt
 # Inicio de expression_stmt
 # Inicio de expression
-# DEBUG: Processing call to output
 # Inicio de expression
 li $t7, 666
 move $a0, $t7
@@ -275,7 +265,6 @@ syscall
 # Fin de expression_stmt
 # Inicio de expression_stmt
 # Inicio de expression
-# DEBUG: Processing call to output
 # Inicio de expression
 lw $t8, -40($fp)
 move $a0, $t8
@@ -291,7 +280,6 @@ else2:
 # Inicio de compound_stmt
 # Inicio de expression_stmt
 # Inicio de expression
-# DEBUG: Processing call to output
 # Inicio de expression
 li $t9, 555
 move $a0, $t9
@@ -306,7 +294,6 @@ endif3:
 # Fin de if statement
 # Inicio de expression_stmt
 # Inicio de expression
-# DEBUG: Processing call to output
 # Inicio de expression
 li $t0, 444
 move $a0, $t0
@@ -355,7 +342,6 @@ sw $t9, 0($t2)
 # Fin de expression_stmt
 # Inicio de expression_stmt
 # Inicio de expression
-# DEBUG: Processing call to output
 # Inicio de expression
 # Inicio de expression
 lw $t4, -24($fp)
